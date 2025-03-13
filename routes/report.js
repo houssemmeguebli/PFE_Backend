@@ -1,13 +1,11 @@
 const express = require('express');
-const reportController = require('../controllers/ReportController');
-
 const router = express.Router();
+const { controller, upload } = require('../controllers/reportController');
 
-// Define routes for reports
-router.get('/reports', reportController.getReports);            // Get all reports
-router.get('/reports/:reportId', reportController.getReportById); // Get report by ID
-router.post('/reports', reportController.createReport);         // Create a new report
-router.put('/reports/:reportId', reportController.updateReport); // Update report
-router.delete('/reports/:reportId', reportController.deleteReport); // Delete report
+router.get('/', controller.getAllReports);
+router.get('/:id', controller.getReportById);
+router.post('/', upload.array('attachments', 10), controller.createReport);
+router.put('/:id', upload.array('attachments', 10), controller.updateReport); // Add multer here
+router.delete('/:id', controller.deleteReport);
 
 module.exports = router;

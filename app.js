@@ -6,18 +6,29 @@ const userRoutes = require('./routes/users');
 const reportRoutes = require('./routes/report');
 const scriptRoutes = require('./routes/script');
 const sequelize = require('./infrastructure/dataBase');
+const path = require('path');
+const multer = require("multer");
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// Enable CORS with dynamic origin for development
+app.use(cors({
+    origin: (origin, callback) => {
+        const allowedOrigins = ['http://localhost:54089', 'http://localhost:53731']; // Add more origins if needed
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors({
-    origin: 'http://localhost:3000',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type']
-}));
 
 // Static file serving for uploads
 app.use('/uploads', express.static('uploads'));
@@ -29,12 +40,17 @@ app.use('/api/v1/scripts', scriptRoutes);
 
 // Global error handling middleware
 app.use((err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        // Handle multer-specific errors
+        return res.status(400).json({ error: `Multer error: ${err.message}` });
+    }
     console.error('Unhandled error:', err.stack);
     res.status(500).json({ error: 'Something went wrong on the server' });
 });
 
 // Database Sync and Server Start
-sequelize.sync({ force: false })
+sequelize
+    .sync({ force: false })
     .then(() => {
         console.log('Database connected and models synced!');
         const PORT = process.env.PORT || 5000;

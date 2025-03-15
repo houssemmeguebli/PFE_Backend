@@ -1,54 +1,33 @@
-const reportService = require("../services/reportService");
-const multer = require('multer'); // Import multer here
-
-// Multer configuration
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/'); // Save files to uploads/
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`); // Unique filename
-    }
-});
-const upload = multer({ storage }); // Define upload here
+const reportService = require('../services/reportService');
 
 class ReportController {
-    async createReport(req, res) {
+    async create(reportData) {
         try {
-            console.log('Request body:', req.body);
-            console.log('Request files:', req.files);
+            const { userId, reportTitle, reportContent, reportStatus, filePaths } = reportData;
 
-            // Validation
-            if (!req.body.userId) {
-                return res.status(400).json({ error: "userId is required" });
-            }
-            if (!req.body.reportContent && !req.body.reportTitle) {
-                return res.status(400).json({ error: "reportContent or reportTitle must be provided" });
-            }
-
-            // Process uploaded files
-            const files = req.files ? req.files.map(file => ({
-                fileName: file.originalname,
-                filePath: file.path,
-                fileType: file.mimetype,
-                fileSize: file.size,
-                uploadedAt: new Date().toISOString()
+            // Transform filePaths into the format expected by reportService
+            const files = filePaths ? filePaths.map(filePath => ({
+                fileName: filePath.split('/').pop(),
+                filePath,
+                fileType: 'unknown',
+                fileSize: 0,
+                uploadedAt: new Date().toISOString(),
             })) : [];
 
-            const reportData = {
-                userId: req.body.userId,
-                reportTitle: req.body.reportTitle,
-                reportContent: req.body.reportContent,
-                reportStatus: req.body.reportStatus || 'Pending',
-                createdAt: req.body.createdAt || new Date(),
-                lastUpdatedAt: req.body.lastUpdatedAt || null,
-                files
+            const reportDataForService = {
+                userId,
+                reportTitle,
+                reportContent,
+                reportStatus: reportStatus || 'Pending',
+                lastUpdatedAt: null,
+                files,
             };
-            const report = await reportService.createReport(reportData);
-            res.status(201).json(report);
+
+            const report = await reportService.createReport(reportDataForService);
+            return report;
         } catch (error) {
             console.error('Error in createReport:', error);
-            res.status(500).json({ error: error.message });
+            throw error;
         }
     }
 
@@ -75,39 +54,83 @@ class ReportController {
             console.log('Update request body:', req.body);
             console.log('Update request files:', req.files);
 
-            // Fetch existing report
-            const existingReport = await reportService.getReportById(req.params.id);
-            if (!existingReport) {
-                return res.status(404).json({ error: "Report not found" });
+            const reportId = req.params.id;
+            if (!reportId) {
+                return res.status(400).json({ error: 'Report ID is required' });
             }
 
-            // Process new files (if any)
-            const newFiles = req.files ? req.files.map(file => ({
-                fileName: file.originalname,
-                filePath: file.path,
-                fileType: file.mimetype,
-                fileSize: file.size,
-                uploadedAt: new Date().toISOString()
-            })) : [];
+            const existingReport = await reportService.getReportById(reportId);
+            if (!existingReport) {
+                return res.status(404).json({ error: 'Report not found' });
+            }
 
-            // Merge new files with existing files
-            const updatedFiles = [...existingReport.files, ...newFiles];
+            const { reportTitle, reportContent, reportStatus } = req.body || {};
+            if (reportTitle !== undefined && (!reportTitle || reportTitle.trim() === '')) {
+                return res.status(400).json({ error: 'reportTitle cannot be empty' });
+            }
+            if (reportContent !== undefined && (!reportContent || reportContent.trim() === '')) {
+                return res.status(400).json({ error: 'reportContent cannot be empty' });
+            }
+            if (reportStatus && !['Pending', 'Approved', 'Rejected'].includes(reportStatus)) {
+                return res.status(400).json({ error: 'reportStatus must be Pending, Approved, or Rejected' });
+            }
+
+            let newFiles = [];
+            if (req.files && req.files['attachment']) {
+                newFiles = Array.isArray(req.files['attachment'])
+                    ? req.files['attachment']
+                    : [req.files['attachment']];
+                newFiles = newFiles.map(file => ({
+                    fileName: file.originalname,
+                    filePath: file.path,
+                    fileType: file.mimetype || 'unknown',
+                    fileSize: file.size || 0,
+                    uploadedAt: new Date().toISOString(),
+                }));
+            }
+
+            let updatedFiles = [...(existingReport.files || [])];
+            if (req.body && req.body.existingFiles) {
+                try {
+                    const existingFiles = JSON.parse(req.body.existingFiles);
+                    if (Array.isArray(existingFiles)) {
+                        updatedFiles = existingFiles.map(file => ({
+                            fileName: file.fileName || file.filePath.split('/').pop(),
+                            filePath: file.filePath,
+                            fileType: file.fileType || 'unknown',
+                            fileSize: file.fileSize || 0,
+                            uploadedAt: file.uploadedAt || new Date().toISOString(),
+                        }));
+                    }
+                } catch (e) {
+                    console.error('Error parsing existingFiles:', e);
+                    return res.status(400).json({ error: 'Invalid existingFiles format' });
+                }
+            }
+            updatedFiles = [...updatedFiles, ...newFiles];
 
             const updateData = {
-                reportTitle: req.body.reportTitle !== undefined ? req.body.reportTitle : existingReport.reportTitle,
-                reportContent: req.body.reportContent !== undefined ? req.body.reportContent : existingReport.reportContent,
-                reportStatus: req.body.reportStatus || existingReport.reportStatus,
-                files: updatedFiles, // Merge files
-                lastUpdatedAt: new Date()
+                reportTitle: reportTitle || existingReport.reportTitle,
+                reportContent: reportContent || existingReport.reportContent,
+                reportStatus: reportStatus || existingReport.reportStatus,
+                files: updatedFiles.length > 0 ? updatedFiles : existingReport.files,
+                lastUpdatedAt: new Date(),
             };
 
-            const report = await reportService.updateReport(req.params.id, updateData);
-            res.json(report);
+            const report = await reportService.updateReport(reportId, updateData);
+            res.status(200).json({
+                message: 'Report updated successfully',
+                data: report,
+            });
         } catch (error) {
             console.error('Error in updateReport:', error);
-            res.status(500).json({ error: error.message });
+            if (error.name === 'SequelizeValidationError') {
+                return res.status(400).json({ error: 'Validation error: ' + error.message });
+            }
+            res.status(500).json({ error: 'Internal server error' });
         }
     }
+
     async deleteReport(req, res) {
         try {
             const success = await reportService.deleteReport(req.params.id);
@@ -118,4 +141,4 @@ class ReportController {
     }
 }
 
-module.exports = { controller: new ReportController(), upload };
+module.exports = { controller: new ReportController() };

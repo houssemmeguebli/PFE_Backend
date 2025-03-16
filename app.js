@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const userRoutes = require('./routes/users');
 const reportRoutes = require('./routes/report');
 const scriptRoutes = require('./routes/script');
+const pythonScript = require("./routes/pythonScript")
 const sequelize = require('./infrastructure/dataBase');
 const path = require('path');
 const multer = require("multer");
@@ -34,9 +35,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static('uploads'));
 
 // Routes with unique sub-paths
-app.use('/api/v1/users', userRoutes);
+app.use('/api/v1', userRoutes);
 app.use('/api/v1/reports', reportRoutes);
-app.use('/api/v1/scripts', scriptRoutes);
+app.use('/api/v1', scriptRoutes);
+app.use('/api/v1/run-python-script',pythonScript);
 
 // Global error handling middleware
 app.use((err, req, res, next) => {
